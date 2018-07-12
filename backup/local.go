@@ -3,42 +3,46 @@ package backup
 import (
 	"fmt"
 	"io/ioutil"
-	"strings"
-	"time"
+  "io"
 
 	"github.com/codeskyblue/go-sh"
 	"github.com/pkg/errors"
-	"github.com/stefanprodan/mgob/config"
 )
 
-func dump(plan config.Plan, tmpPath string, ts time.Time) (string, string, error) {
+func dump(archive, log io.Writer) (io.Writer, io.Writer, error) {
 
-	archive := fmt.Sprintf("%v/%v-%v.gz", tmpPath, plan.Name, ts.Unix())
-	log := fmt.Sprintf("%v/%v-%v.log", tmpPath, plan.Name, ts.Unix())
+  // TODO: rework this part
+	//res := Result{}
+  //err := sh.Command("mkdir", "-p", planDir).Run()
+	//if err != nil {
+    // return res, errors.Wrapf(err, "creating dir %v in %v failed", plan.Name, storagePath)
+	//}
 
-	dump := fmt.Sprintf("mongodump --archive=%v --gzip --host %v --port %v ",
-		archive, plan.Target.Host, plan.Target.Port)
-	if plan.Target.Database != "" {
-		dump += fmt.Sprintf("--db %v ", plan.Target.Database)
-	}
-	if plan.Target.Username != "" && plan.Target.Password != "" {
-		dump += fmt.Sprintf("-u %v -p %v ", plan.Target.Username, plan.Target.Password)
-	}
-	if plan.Target.Params != "" {
-		dump += fmt.Sprintf("%v", plan.Target.Params)
-	}
+  // fi, err := os.Stat(archive)
+	// if err != nil {
+	// 	return res, errors.Wrapf(err, "stat file %v failed", archive)
+	// }
+	// res.Size = fi.Size()
 
-	output, err := sh.Command("/bin/sh", "-c", dump).SetTimeout(time.Duration(plan.Scheduler.Timeout) * time.Minute).CombinedOutput()
-	if err != nil {
-		ex := ""
-		if len(output) > 0 {
-			ex = strings.Replace(string(output), "\n", " ", -1)
-		}
-		return "", "", errors.Wrapf(err, "mongodump log %v", ex)
-	}
-	logToFile(log, output)
+// 	err = sh.Command("mv", archive, planDir).Run()
+// 	if err != nil {
+// 		return res, errors.Wrapf(err, "moving file from %v to %v failed", archive, planDir)
+// 	}
+// 
+//	err = sh.Command("mv", log, planDir).Run()
+//	if err != nil {
+//		return res, errors.Wrapf(err, "moving file from %v to %v failed", log, planDir)
+//	}
 
-	return archive, log, nil
+	//if plan.Scheduler.Retention > 0 {
+	//	err = applyRetention(planDir, plan.Scheduler.Retention)
+	//	if err != nil {
+	//		return res, errors.Wrap(err, "retention job failed")
+	//	}
+	//}
+
+	//file := filepath.Join(planDir, res.Name)
+  return nil, nil, nil
 }
 
 func logToFile(file string, data []byte) error {

@@ -1,0 +1,6 @@
+* migrate backup 1 -> * outputs
+** implement dump (meaning local dump)
+** use io streams instead of file names
+** add back timeout of backup (how to handle with stream?)
+** add back error handling
+* add encyption (another PR ?)

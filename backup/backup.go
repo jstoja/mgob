@@ -2,62 +2,39 @@ package backup
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"time"
+  "io"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/codeskyblue/go-sh"
-	"github.com/pkg/errors"
 	"github.com/stefanprodan/mgob/config"
 )
 
 func Run(plan config.Plan, tmpPath string, storagePath string) (Result, error) {
-	t1 := time.Now()
-	planDir := fmt.Sprintf("%v/%v", storagePath, plan.Name)
+  ts := time.Now()
 
-	archive, log, err := dump(plan, tmpPath, t1.UTC())
+	archivePath := fmt.Sprintf("%v/%v-%v.gz", tmpPath, plan.Name, ts.Unix())
+	logPath := fmt.Sprintf("%v/%v-%v.log", tmpPath, plan.Name, ts.Unix())
+
+  archiveStream, logStream, err := backup(plan, archivePath, logPath)
+
 	res := Result{
 		Plan:      plan.Name,
-		Timestamp: t1.UTC(),
+		Timestamp: ts.UTC(),
 		Status:    500,
 	}
-	_, res.Name = filepath.Split(archive)
+	_, res.Name = filepath.Split(archivePath)
 
-	if err != nil {
-		return res, err
-	}
+  if err != nil {
+    return res, err
+  }
 
-	err = sh.Command("mkdir", "-p", planDir).Run()
-	if err != nil {
-		return res, errors.Wrapf(err, "creating dir %v in %v failed", plan.Name, storagePath)
-	}
+  if tmpPath != "" {
+    dump(archiveStream, logStream)
+  }
 
-	fi, err := os.Stat(archive)
-	if err != nil {
-		return res, errors.Wrapf(err, "stat file %v failed", archive)
-	}
-	res.Size = fi.Size()
-
-	err = sh.Command("mv", archive, planDir).Run()
-	if err != nil {
-		return res, errors.Wrapf(err, "moving file from %v to %v failed", archive, planDir)
-	}
-
-	err = sh.Command("mv", log, planDir).Run()
-	if err != nil {
-		return res, errors.Wrapf(err, "moving file from %v to %v failed", log, planDir)
-	}
-
-	if plan.Scheduler.Retention > 0 {
-		err = applyRetention(planDir, plan.Scheduler.Retention)
-		if err != nil {
-			return res, errors.Wrap(err, "retention job failed")
-		}
-	}
-
-	file := filepath.Join(planDir, res.Name)
-
+  file := ""
 	if plan.SFTP != nil {
 		sftpOutput, err := sftpUpload(file, plan)
 		if err != nil {
@@ -87,6 +64,26 @@ func Run(plan config.Plan, tmpPath string, storagePath string) (Result, error) {
 
 	t2 := time.Now()
 	res.Status = 200
-	res.Duration = t2.Sub(t1)
+	res.Duration = t2.Sub(ts)
 	return res, nil
+}
+
+func backup(plan config.Plan, archive, log string) (io.Writer, io.Writer, error) {
+	dump := fmt.Sprintf("mongodump --archive=%v --gzip --host %v --port %v ",
+		archive, plan.Target.Host, plan.Target.Port)
+	if plan.Target.Database != "" {
+		dump += fmt.Sprintf("--db %v ", plan.Target.Database)
+	}
+	if plan.Target.Username != "" && plan.Target.Password != "" {
+		dump += fmt.Sprintf("-u %v -p %v ", plan.Target.Username, plan.Target.Password)
+	}
+	if plan.Target.Params != "" {
+		dump += fmt.Sprintf("%v", plan.Target.Params)
+	}
+
+  cmd := sh.Command("/bin/sh", "-c", dump)
+  cmd.SetTimeout(time.Duration(plan.Scheduler.Timeout) * time.Minute)
+  cmd.Start()
+
+	return cmd.Stdout, cmd.Stderr, nil
 }
