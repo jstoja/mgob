@@ -2,47 +2,60 @@ package backup
 
 import (
 	"fmt"
+	"path/filepath"
 	"io/ioutil"
   "io"
+  "os"
+  "time"
 
 	"github.com/codeskyblue/go-sh"
 	"github.com/pkg/errors"
+	"github.com/stefanprodan/mgob/config"
 )
 
-func dump(archive, log io.Writer) (io.Writer, io.Writer, error) {
+func dump(plan config.Plan, storagePath string, archive, log io.ReadCloser) (Result, error) {
+  ts := time.Now()
+  planDir := fmt.Sprintf("%v/%v", storagePath, plan.Name)
 
-  // TODO: rework this part
-	//res := Result{}
-  //err := sh.Command("mkdir", "-p", planDir).Run()
-	//if err != nil {
-    // return res, errors.Wrapf(err, "creating dir %v in %v failed", plan.Name, storagePath)
-	//}
+	res := Result{
+		Plan:      plan.Name,
+		Timestamp: ts.UTC(),
+		Status:    500,
+	}
 
-  // fi, err := os.Stat(archive)
-	// if err != nil {
-	// 	return res, errors.Wrapf(err, "stat file %v failed", archive)
-	// }
-	// res.Size = fi.Size()
+  err := sh.Command("mkdir", "-p", planDir).Run()
+	if err != nil {
+    return res, errors.Wrapf(err, "creating dir %v in %v failed", plan.Name, storagePath)
+	}
 
-// 	err = sh.Command("mv", archive, planDir).Run()
-// 	if err != nil {
-// 		return res, errors.Wrapf(err, "moving file from %v to %v failed", archive, planDir)
-// 	}
-// 
-//	err = sh.Command("mv", log, planDir).Run()
-//	if err != nil {
-//		return res, errors.Wrapf(err, "moving file from %v to %v failed", log, planDir)
-//	}
+	archivePath := fmt.Sprintf("%v/%v-%v.gz", planDir, plan.Name, ts.Unix())
+  f, err := os.Create(archivePath)
+  bytesWritten, err := io.Copy(f, archive)
+	if err != nil {
+		return res, errors.Wrapf(err, "piping to file %v failed", archivePath)
+	}
 
-	//if plan.Scheduler.Retention > 0 {
-	//	err = applyRetention(planDir, plan.Scheduler.Retention)
-	//	if err != nil {
-	//		return res, errors.Wrap(err, "retention job failed")
-	//	}
-	//}
+  fi, err := os.Stat(archivePath)
+	if err != nil {
+		return res, errors.Wrapf(err, "stat file %v failed", archivePath)
+	}
+	_, res.Name = filepath.Split(archivePath)
+  if bytesWritten != fi.Size() {
+    return res, errors.Wrapf(err, "different size read and saved on disk %v vs %v", bytesWritten, fi.Size())
+  }
+	res.Size = fi.Size()
+
+  // TODO: Add stderr logging in file + move to planDir
+
+	if plan.Scheduler.Retention > 0 {
+		err = applyRetention(planDir, plan.Scheduler.Retention)
+		if err != nil {
+			return res, errors.Wrap(err, "retention job failed")
+		}
+	}
 
 	//file := filepath.Join(planDir, res.Name)
-  return nil, nil, nil
+  return res, nil
 }
 
 func logToFile(file string, data []byte) error {

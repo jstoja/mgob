@@ -1,5 +1,6 @@
 * migrate backup 1 -> * outputs
-** implement dump (meaning local dump)
+** use local as type of backup destination ( https://github.com/stefanprodan/mgob/issues/15#issuecomment-404805893 )
+** implement dump with logging (meaning local dump)
 ** use io streams instead of file names
 ** add back timeout of backup (how to handle with stream?)
 ** add back error handling

@@ -2,36 +2,34 @@ package backup
 
 import (
 	"fmt"
-	"path/filepath"
 	"time"
   "io"
+  "os/exec"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/codeskyblue/go-sh"
 	"github.com/stefanprodan/mgob/config"
 )
 
 func Run(plan config.Plan, tmpPath string, storagePath string) (Result, error) {
   ts := time.Now()
 
-	archivePath := fmt.Sprintf("%v/%v-%v.gz", tmpPath, plan.Name, ts.Unix())
-	logPath := fmt.Sprintf("%v/%v-%v.log", tmpPath, plan.Name, ts.Unix())
+	//archivePath := fmt.Sprintf("%v/%v-%v.gz", tmpPath, plan.Name, ts.Unix())
+	//logPath := fmt.Sprintf("%v/%v-%v.log", tmpPath, plan.Name, ts.Unix())
 
-  archiveStream, logStream, err := backup(plan, archivePath, logPath)
-
-	res := Result{
-		Plan:      plan.Name,
-		Timestamp: ts.UTC(),
-		Status:    500,
-	}
-	_, res.Name = filepath.Split(archivePath)
+  // Add timer here
+  archiveStream, logStream, err := backup(plan)
 
   if err != nil {
-    return res, err
+    return Result{}, err
   }
 
+  // If there's no API output, just have it
+  res := Result{}
   if tmpPath != "" {
-    dump(archiveStream, logStream)
+    res, err := dump(plan, storagePath, archiveStream, logStream)
+    if err != nil {
+      return res, err
+    }
   }
 
   file := ""
@@ -68,9 +66,8 @@ func Run(plan config.Plan, tmpPath string, storagePath string) (Result, error) {
 	return res, nil
 }
 
-func backup(plan config.Plan, archive, log string) (io.Writer, io.Writer, error) {
-	dump := fmt.Sprintf("mongodump --archive=%v --gzip --host %v --port %v ",
-		archive, plan.Target.Host, plan.Target.Port)
+func backup(plan config.Plan) (io.ReadCloser, io.ReadCloser, error) {
+	dump := fmt.Sprintf("mongodump --archive --gzip --host %v --port %v ", plan.Target.Host, plan.Target.Port)
 	if plan.Target.Database != "" {
 		dump += fmt.Sprintf("--db %v ", plan.Target.Database)
 	}
@@ -81,9 +78,18 @@ func backup(plan config.Plan, archive, log string) (io.Writer, io.Writer, error)
 		dump += fmt.Sprintf("%v", plan.Target.Params)
 	}
 
-  cmd := sh.Command("/bin/sh", "-c", dump)
-  cmd.SetTimeout(time.Duration(plan.Scheduler.Timeout) * time.Minute)
+  cmd := exec.Command("/bin/sh", "-c", dump)
+  // cmd.SetTimeout(time.Duration(plan.Scheduler.Timeout) * time.Minute)
   cmd.Start()
 
-	return cmd.Stdout, cmd.Stderr, nil
+  out2, err := cmd.StderrPipe()
+  if err != nil {
+    return nil, out2, err
+  }
+  out1, err := cmd.StdoutPipe()
+  if err != nil {
+    return nil, out1, err
+  }
+
+	return out1, out2, nil
 }
